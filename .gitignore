@@ -64,6 +64,7 @@ pnpm-lock.yaml
 tmp/
 
 # Build output
+build/
 dist/
 bundle/*.js.*
 bundle/*.js

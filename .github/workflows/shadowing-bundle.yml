@@ -1,0 +1,39 @@
+name: Publish youtubejs.zip
+
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+concurrency:
+  group: shadowing-bundle
+  cancel-in-progress: false
+
+jobs:
+  publish:
+    if: github.repository == 'resoliwan/YouTube.js'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '24'
+          cache: npm
+      - run: npm ci
+      - run: node --test shadowing/runtime.node-test.mjs
+      - run: node dev-scripts/build-shadowing-bundle.mjs
+      - name: Publish using the existing package version
+        env:
+          GH_TOKEN: ${{ github.token }}
+          GH_REPO: ${{ github.repository }}
+        run: |
+          version=$(node -p "JSON.parse(require('fs').readFileSync('package.json')).version")
+          tag="v${version}"
+          if ! gh release view "$tag" >/dev/null 2>&1; then
+            gh release create "$tag" --target "$GITHUB_SHA" --title "$tag" --notes "YouTube.js ${version} for Shadowing. The source commit and file hashes are recorded in manifest.json inside youtubejs.zip."
+          fi
+          gh release upload "$tag" build/shadowing/youtubejs.zip --clobber
+          gh release edit "$tag" --latest
