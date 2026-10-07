@@ -31,7 +31,8 @@ test('authenticated fallback skips URL-less formats and retains account cookies'
   const calls = [];
   const cookie = 'SAPISID=test-only';
   t.mock.method(Innertube, 'create', async (options) => {
-    assert.equal(options.cookie, options.generate_session_locally ? undefined : cookie);
+    assert.equal(options.cookie, cookie);
+    assert.equal(options.generate_session_locally, false);
     return {
       session: { player: {} },
       getBasicInfo: async (_, { client }) => {
@@ -58,11 +59,16 @@ test('authenticated fallback skips URL-less formats and retains account cookies'
   assert.equal(messages.at(-1).mimeType, 'audio/mp4');
 });
 
-test('public audio uses the verified anonymous profile even while signed in', async (t) => {
+for (const session of [
+  {},
+  { cookie: 'CONSENT=test-only', signedIn: false },
+  { cookie: 'SAPISID=test-only', signedIn: true },
+]) {
+ test(`VISIONOS retains session cookies; signedIn=${Boolean(session.signedIn)}, cookies=${Boolean(session.cookie)}`, async (t) => {
   const calls = [];
   t.mock.method(Innertube, 'create', async (options) => {
-    assert.equal(options.cookie, undefined);
-    assert.equal(options.generate_session_locally, true);
+    assert.equal(options.cookie, session.cookie);
+    assert.equal(options.generate_session_locally, !session.cookie);
     assert.equal(options.location, 'US');
     return {
       session: { player: {} },
@@ -82,12 +88,16 @@ test('public audio uses the verified anonymous profile even while signed in', as
     };
   });
   messages.length = 0;
-  await extract('7CeNTtbhYLs', { cookie: 'SAPISID=test-only', signedIn: true });
+  await extract('7CeNTtbhYLs', session);
   assert.deepEqual(calls, ['VISIONOS']);
   const result = messages.at(-1);
   assert.equal(result.type, 'result');
   assert.equal(result.headers.origin, 'https://www.youtube.com');
   assert.equal(result.headers.referer, 'https://www.youtube.com');
   assert.equal(result.headers['User-Agent'], undefined);
+  assert.equal(new Headers(result.headers).has('Cookie'), false);
+  assert.equal(new Headers(result.headers).has('Authorization'), false);
   assert.equal(new URL(result.url).searchParams.get('cpn'), 'test-cpn');
 });
+
+}

@@ -57,10 +57,10 @@ export async function extract(videoId, session = {}) {
     Platform.shim.server = true;
     Platform.shim.eval = async (data) => new Function(data.output)();
     Log.setLevel(Log.Level.ERROR);
-    // IOS URLs may reject ranges beyond the first MiB. VISIONOS was verified
-    // with the complete public audio file; preserve authenticated WEB fallbacks.
-    // Signing into the account browser must not change a public video's format.
-    const profiles = [{ client: 'VISIONOS', cookie: undefined },
+    // Reuse the app's YouTube session for the initial player request as well as
+    // authenticated fallbacks. CDN downloads still use only stream headers.
+    const cookie = session.cookie || undefined;
+    const profiles = [{ client: 'VISIONOS', cookie },
       ...(session.signedIn ? ['WEB', 'WEB_CREATOR'].map((client) =>
         ({ client, cookie: session.cookie })) : [])];
     let youtube;

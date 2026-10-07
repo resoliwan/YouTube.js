@@ -8,10 +8,10 @@ version replaces the asset for new installations but does not update existing on
 
 `runtime.js` exposes `ShadowingYoutube.extract` and `completeHttp`, using the
 `NativeYoutube` message channel. YouTube requests and cookies stay on the device.
-Public audio first uses anonymous `VISIONOS`: IOS URLs can reject ranges past
+Public audio first uses `VISIONOS` with the app-provided YouTube cookies: IOS URLs can reject ranges past
 the first MiB with HTTP 403. If no downloadable format is available, signed-in
-requests can fall back to `WEB` and `WEB_CREATOR`. Public requests do not send
-account cookies. Native HTTP/download logic stays in the Flutter app.
+requests can fall back to `WEB` and `WEB_CREATOR`. Without cookies the request remains anonymous. Cookies are sent only during
+YouTube extraction, never in the returned CDN download headers. Native HTTP/download logic stays in the Flutter app.
 
 Build locally:
 
