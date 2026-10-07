@@ -1,4 +1,14 @@
+// Version policy: package.json.version identifies this app runtime bundle;
+// dependencies.youtubei.js identifies the official library separately.
+// Record the bundle version before shipping it in the app. The app runs a
+// cached bundle only if newer than its built-in bundle, and downloads a release
+// only after its metadata reports a version newer than both local versions.
+// Bump the bundle version when runtime behavior or the library changes.
+
 import { Innertube, Platform, Constants, Log } from '../dist/src/platform/web.js';
+import runtimePackage from '../package.json' with { type: 'json' };
+
+export const version = runtimePackage.version;
 
 // All HTTP uses the app's client, so WebView CORS rules don't affect extraction.
 const requests = new Map();
@@ -47,29 +57,44 @@ export async function extract(videoId, session = {}) {
     Platform.shim.server = true;
     Platform.shim.eval = async (data) => new Function(data.output)();
     Log.setLevel(Log.Level.ERROR);
-    const youtube = await Innertube.create({
-      fetch: nativeFetch,
-      lang: 'en',
-      location: 'KR',
-      cookie: session.cookie || undefined,
-      generate_session_locally: false,
-      retrieve_innertube_config: false,
-    });
-    // Cookie authentication belongs to the WEB client, not mobile client profiles.
-    const client = session.signedIn ? 'WEB' : 'IOS';
-    const info = await youtube.getBasicInfo(videoId, { client });
-    if (info.playability_status?.status !== 'OK') {
-      throw new Error(info.playability_status?.reason || 'Video unavailable');
-    }
-    if (info.basic_info.is_live || info.basic_info.is_upcoming) {
-      throw new Error('Live audio is unsupported');
-    }
+    // IOS URLs may reject ranges beyond the first MiB. VISIONOS was verified
+    // with the complete public audio file; preserve authenticated WEB fallbacks.
+    // Signing into the account browser must not change a public video's format.
+    const profiles = [{ client: 'VISIONOS', cookie: undefined },
+      ...(session.signedIn ? ['WEB', 'WEB_CREATOR'].map((client) =>
+        ({ client, cookie: session.cookie })) : [])];
+    let youtube;
+    let info;
     let format;
-    try {
-      format = info.chooseFormat({ type: 'audio', format: 'mp4', quality: 'best' });
-    } catch {
-      format = info.chooseFormat({ type: 'audio', format: 'webm', quality: 'best' });
+    let unavailableReason;
+    for (const profile of profiles) {
+      youtube = await Innertube.create({
+        fetch: nativeFetch, lang: 'en', location: 'US',
+        cookie: profile.cookie,
+        generate_session_locally: !profile.cookie,
+        retrieve_innertube_config: false,
+      });
+      info = await youtube.getBasicInfo(videoId, { client: profile.client });
+      if (info.playability_status?.status !== 'OK') {
+        unavailableReason = info.playability_status?.reason || 'Video unavailable';
+        continue;
+      }
+      if (info.basic_info.is_live || info.basic_info.is_upcoming) {
+        throw new Error('Live audio is unsupported');
+      }
+      const candidates = (info.streaming_data?.adaptive_formats || [])
+        .filter((entry) => entry.has_audio && !entry.has_video &&
+          (entry.url || entry.signature_cipher || entry.cipher) &&
+          !entry.drm_families?.length &&
+          /^audio\/(mp4|webm)(;|$)/.test(entry.mime_type));
+      // Prefer M4A for native decoding, then the highest bitrate.
+      candidates.sort((a, b) =>
+        Number(b.mime_type.startsWith('audio/mp4')) - Number(a.mime_type.startsWith('audio/mp4')) ||
+        Number(Boolean(b.is_original)) - Number(Boolean(a.is_original)) || b.bitrate - a.bitrate);
+      format = candidates[0];
+      if (format) break;
     }
+    if (!format) throw new Error(unavailableReason || '이 영상에서 다운로드할 수 있는 오디오 주소를 제공하지 않았어요.');
     if (!format.has_audio || format.has_video) throw new Error('Audio-only format unavailable');
     const url = new URL(await format.decipher(youtube.session.player));
     if (info.cpn) url.searchParams.set('cpn', info.cpn);
@@ -78,8 +103,7 @@ export async function extract(videoId, session = {}) {
       durationSeconds: info.basic_info.duration,
       url: url.toString(), mimeType: format.mime_type.split(';')[0],
       contentLength: format.content_length,
-      headers: { 'User-Agent': Constants.CLIENTS[client].USER_AGENT,
-        'Accept': '*/*', 'Accept-Encoding': 'identity' } });
+      headers: { ...Constants.STREAM_HEADERS, 'Accept-Encoding': 'identity' } });
   } catch (error) {
     send({ type: 'error', message: error.message || String(error) });
   }

@@ -8,8 +8,10 @@ version replaces the asset for new installations but does not update existing on
 
 `runtime.js` exposes `ShadowingYoutube.extract` and `completeHttp`, using the
 `NativeYoutube` message channel. YouTube requests and cookies stay on the device.
-The unauthenticated player request uses the `IOS` client profile; authenticated
-requests use `WEB`. Native HTTP/download logic stays in the Flutter app.
+Public audio first uses anonymous `VISIONOS`: IOS URLs can reject ranges past
+the first MiB with HTTP 403. If no downloadable format is available, signed-in
+requests can fall back to `WEB` and `WEB_CREATOR`. Public requests do not send
+account cookies. Native HTTP/download logic stays in the Flutter app.
 
 Build locally:
 
